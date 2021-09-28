@@ -1,0 +1,98 @@
+version: "3.7"
+services:
+  app:
+    build:
+      args:
+        user: meshgroup
+        uid: 1000
+      context: ./
+      dockerfile: Dockerfile
+    image: meshgroup
+    container_name: meshgroup-app
+    restart: unless-stopped
+    working_dir: /var/www/
+    volumes:
+      #      - ./docker-compose/php-worker/supervisord.d:/etc/supervisord.d
+      - ./:/var/www
+    networks:
+      - meshgroup
+  rabbitmq:
+    build: ./docker-compose/rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+      - "15671:15671"
+    privileged: true
+    hostname: meshgroup-rabbitmq
+    volumes:
+      - ${DATA_PATH_HOST}/rabbitmq:/var/lib/rabbitmq
+      - ./docker-compose/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
+      - ./docker-compose/rabbitmq/management_agent.disable_metrics_collector.conf:/etc/rabbitmq/conf.d/management_agent.disable_metrics_collector.conf
+    networks:
+      - meshgroup
+  supervisor:
+    container_name: supervisor
+    build:
+      context: ./docker-compose/php-worker
+      args:
+        user: meshgroup
+        uid: 1000
+    restart: unless-stopped
+    volumes:
+      - ./docker-compose/php-worker/supervisord.d:/etc/supervisord.d
+      - ./:/var/www
+    depends_on:
+      - app
+    networks:
+      - meshgroup
+  db:
+    container_name: meshgroup-db
+    build:
+      context: ./docker-compose/mariadb
+      args:
+        - http_proxy
+        - https_proxy
+        - no_proxy
+    volumes:
+      - ${DATA_PATH_HOST}/mariadb:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_DATABASE=${DB_DATABASE}
+      - MYSQL_USER=${DB_USERNAME}
+      - MYSQL_PASSWORD=${DB_PASSWORD}
+      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD}
+    networks:
+      - meshgroup
+  nginx:
+    image: nginx:alpine
+    container_name: meshgroup-nginx
+    ports:
+      - "8000:80"
+    volumes:
+      - ./:/var/www
+      - ./docker-compose/nginx:/etc/nginx/conf.d/
+    networks:
+      - meshgroup
+  redis:
+    build: ./docker-compose/redis
+    volumes:
+      - ${DATA_PATH_HOST}/redis:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - meshgroup
+  laravel-echo-server:
+    build:
+      context: ./docker-compose/laravel-echo-server
+    volumes:
+      - ./docker-compose/laravel-echo-server/laravel-echo-server.json:/app/laravel-echo-server.json:ro
+    ports:
+      - "6001:6001"
+    links:
+      - redis
+    networks:
+      - meshgroup
+networks:
+  meshgroup:
+    driver: bridge
